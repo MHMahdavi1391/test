@@ -5,13 +5,13 @@
 <title>بکاپ مپ‌های Minecraft</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-body { font-family: sans-serif; background: #f0f0f0; padding: 10px; }
-h1 { text-align: center; }
+body { font-family: sans-serif; background: #000; color: #fff; padding: 10px; }
+h1 { text-align: center; color: #ffd700; text-shadow: 1px 1px 3px #ffa500; }
 #worldList { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-top: 15px; }
-.world { background: #fff; border-radius: 10px; padding: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); text-align: center; }
-.world img { width: 100%; height: 100px; object-fit: cover; border-radius: 5px; }
-button { margin: 5px 0; padding: 7px 12px; border-radius: 5px; border: none; background: #007bff; color: #fff; cursor: pointer; width: 100%; font-size: 14px; }
-button:hover { background: #0056b3; }
+.world { background: #111; border-radius: 10px; padding: 10px; box-shadow: 0 2px 10px rgba(255,215,0,0.4); text-align: center; }
+.world img { width: 100%; height: 100px; object-fit: cover; border-radius: 5px; border: 2px solid #ffd700; }
+button { margin: 5px 0; padding: 7px 12px; border-radius: 8px; border: none; background: linear-gradient(145deg,#ffd700,#ffb700,#e6ac00); color: #000; cursor: pointer; width: 100%; font-size: 14px; font-weight: bold; box-shadow: 0 2px 5px rgba(255,215,0,0.5); }
+button:hover { background: linear-gradient(145deg,#ffb700,#ffd700,#e6ac00); box-shadow: 0 4px 10px rgba(255,215,0,0.7); }
 </style>
 </head>
 <body>
@@ -85,15 +85,9 @@ async function chooseFolder() {
 
             // دکمه بکاپ .mcworld
             const mcworldBtn = document.createElement('button');
-            mcworldBtn.textContent = '.mcworld';
+            mcworldBtn.textContent = 'دانلود بکاپ (.mcworld)';
             mcworldBtn.onclick = async () => { await backupWorld(worldHandle, displayName+'.mcworld'); };
             worldDiv.appendChild(mcworldBtn);
-
-            // دکمه بکاپ .mctemplate
-            const mctemplateBtn = document.createElement('button');
-            mctemplateBtn.textContent = '.mctemplate';
-            mctemplateBtn.onclick = async () => { await backupWorld(worldHandle, displayName+'.mctemplate'); };
-            worldDiv.appendChild(mctemplateBtn);
 
             worldList.appendChild(worldDiv);
         }
@@ -103,33 +97,53 @@ async function chooseFolder() {
     }
 }
 
-// تابع بکاپ کامل
-async function backupWorld(dirHandle, filename) {
+// بکاپ دقیق فقط level.dat_old + db + عکس
+async function backupWorld(worldHandle, filename) {
     const zip = new JSZip();
 
-    async function addFilesToZip(zipObj, handle) {
-        for await (const [name, entry] of handle.entries()) {
-            if (entry.kind === 'file') {
-                try {
-                    const file = await entry.getFile();
-                    zipObj.file(name, file);
-                } catch(e) { console.warn('Error reading file', name); }
-            } else if (entry.kind === 'directory') {
-                const folder = zipObj.folder(name);
-                await addFilesToZip(folder, entry);
+    // level.dat_old
+    try {
+        const levelFileHandle = await worldHandle.getFileHandle('level.dat_old');
+        const file = await levelFileHandle.getFile();
+        zip.file('level.dat_old', file);
+    } catch(e){ console.warn('level.dat_old not found'); }
+
+    // پوشه db
+    try {
+        const dbHandle = await worldHandle.getDirectoryHandle('db');
+        const addDbFolder = async (zipFolder, dirHandle) => {
+            for await (const [name, handle] of dirHandle.entries()) {
+                if (handle.kind === 'file') {
+                    const file = await handle.getFile();
+                    zipFolder.file(name, file);
+                } else if (handle.kind === 'directory') {
+                    const subFolder = zipFolder.folder(name);
+                    await addDbFolder(subFolder, handle);
+                }
             }
         }
+        const dbFolder = zip.folder('db');
+        await addDbFolder(dbFolder, dbHandle);
+    } catch(e){ console.warn('db folder not found'); }
+
+    // عکس مپ
+    let foundImg = false;
+    const exts = ['png','jpg','jpeg'];
+    for(const ext of exts) {
+        try {
+            const imgHandle = await worldHandle.getFileHandle(`world_icon.${ext}`);
+            const file = await imgHandle.getFile();
+            zip.file(`world_icon.${ext}`, file);
+            foundImg = true;
+            break;
+        } catch(e){ continue; }
     }
 
-    await addFilesToZip(zip, dirHandle);
     const blob = await zip.generateAsync({ type:'blob' });
-
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;
     a.click();
-
-    // پیام موفقیت
     alert(`بکاپ ${filename} آماده شد و دانلود شد!`);
 }
 
