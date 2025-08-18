@@ -42,7 +42,13 @@
     }
     .world-name {
         font-size: 18px;
-        margin-bottom: 8px;
+        margin: 8px 0;
+    }
+    .world img {
+        width: 100%;
+        max-width: 300px;
+        border-radius: 12px;
+        margin-top: 6px;
     }
 </style>
 </head>
@@ -61,17 +67,28 @@ async function pickFolder() {
     for await (const [worldId, worldHandle] of worldsFolder.entries()) {
         if (worldHandle.kind === "directory") {
             let worldName = worldId;
+            let worldIconURL = "";
+
+            // اسم world از levelname.txt
             try {
                 const levelNameFile = await worldHandle.getFileHandle("levelname.txt");
                 const file = await levelNameFile.getFile();
-                worldName = await file.text();
+                worldName = (await file.text()).trim();
             } catch {}
-            
+
+            // عکس world از world_icon.jpeg
+            try {
+                const iconFile = await worldHandle.getFileHandle("world_icon.jpeg");
+                const file = await iconFile.getFile();
+                worldIconURL = URL.createObjectURL(file);
+            } catch {}
+
             const div = document.createElement("div");
             div.className = "world";
             div.innerHTML = `
+                ${worldIconURL ? `<img src="${worldIconURL}" alt="icon">` : ""}
                 <div class="world-name">🌍 ${worldName}</div>
-                <button onclick="backupWorld('${worldId}')">📦 بکاپ</button>
+                <button onclick="backupWorld('${worldId}', '${worldName.replace(/'/g, "\\'")}')">📦 بکاپ</button>
             `;
             worldsDiv.appendChild(div);
         }
@@ -79,7 +96,7 @@ async function pickFolder() {
     window.worldsFolder = worldsFolder;
 }
 
-async function backupWorld(worldId) {
+async function backupWorld(worldId, worldName) {
     const worldHandle = await window.worldsFolder.getDirectoryHandle(worldId);
     const zip = new JSZip();
 
@@ -104,7 +121,7 @@ async function backupWorld(worldId) {
     const blob = await zip.generateAsync({ type: "blob" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = worldId + ".mcworld";
+    a.download = worldName + ".mcworld"; // اسم فایل همون اسم world
     a.click();
     URL.revokeObjectURL(a.href);
 }
