@@ -33,7 +33,6 @@ async function chooseFolder() {
                 worldsHandle = handle;
                 break;
             }
-            // اگر پوشه‌های دیگر دارند، می‌توان جستجو عمیق کرد
             if (handle.kind === 'directory') {
                 for await (const [subName, subHandle] of handle.entries()) {
                     if (subHandle.kind === 'directory' && subName === 'minecraftWorlds') {
@@ -62,23 +61,26 @@ async function chooseFolder() {
                 const levelFile = await worldHandle.getFileHandle('levelname.txt');
                 const levelData = await levelFile.getFile();
                 displayName = await levelData.text();
-            } catch(e) {
-                // اگر نبود، اسم پوشه استفاده می‌شود
-            }
+            } catch(e) { /* fallback: اسم پوشه */ }
 
             const title = document.createElement('h3');
             title.textContent = displayName;
             worldDiv.appendChild(title);
 
-            // نمایش عکس
+            // نمایش عکس: بررسی پسوندهای png, jpg, jpeg
             let img = document.createElement('img');
-            try {
-                const imgFileHandle = await worldHandle.getFileHandle('world_icon.png');
-                const file = await imgFileHandle.getFile();
-                img.src = URL.createObjectURL(file);
-            } catch(e) {
-                img.src = 'https://via.placeholder.com/180x100?text=No+Image';
+            let foundImg = false;
+            const exts = ['png','jpg','jpeg'];
+            for(const ext of exts) {
+                try {
+                    const imgFileHandle = await worldHandle.getFileHandle(`world_icon.${ext}`);
+                    const file = await imgFileHandle.getFile();
+                    img.src = URL.createObjectURL(file);
+                    foundImg = true;
+                    break;
+                } catch(e) { continue; }
             }
+            if(!foundImg) img.src = 'https://via.placeholder.com/180x100?text=No+Image';
             worldDiv.appendChild(img);
 
             // دکمه .mcworld
@@ -112,11 +114,14 @@ async function downloadWorld(dirHandle, filename) {
     a.click();
 }
 
+// افزودن پوشه‌ها و فایل‌ها به zip
 async function addFolderToZip(zipObj, dirHandle, path='') {
     for await (const [name, handle] of dirHandle.entries()) {
         if (handle.kind === 'file') {
-            const file = await handle.getFile();
-            zipObj.file(path + name, file);
+            try {
+                const file = await handle.getFile();
+                zipObj.file(path + name, file);
+            } catch(e){ console.warn('Error reading file', name); }
         } else if (handle.kind === 'directory') {
             const folder = zipObj.folder(path + name);
             await addFolderToZip(folder, handle, '');
