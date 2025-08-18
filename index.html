@@ -2,11 +2,11 @@
 <html lang="fa">
 <head>
 <meta charset="UTF-8">
-<title>بکاپ مپ‌های Minecraft</title>
+<title>بکاپ‌گیر مپ‌های Minecraft</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
     body {
-        background-color: #000;
+        background: #000;
         color: #ffd700;
         font-family: Arial, sans-serif;
         text-align: center;
@@ -14,129 +14,116 @@
         padding: 20px;
     }
     h1 {
+        font-size: 22px;
         margin-bottom: 20px;
     }
     button {
         background: linear-gradient(145deg, #ffd700, #b8860b);
         border: none;
-        color: black;
-        padding: 10px 20px;
-        margin: 10px;
-        border-radius: 12px;
+        color: #000;
+        padding: 12px 20px;
+        margin: 8px;
+        border-radius: 14px;
         font-size: 16px;
         font-weight: bold;
         cursor: pointer;
-        box-shadow: 0 4px 10px rgba(255,215,0,0.6);
+        box-shadow: 0 4px 12px rgba(255,215,0,0.6);
         transition: transform 0.2s;
     }
     button:hover {
         transform: scale(1.05);
     }
     .world {
-        background: #111;
-        border: 1px solid #ffd700;
-        border-radius: 16px;
-        padding: 15px;
-        margin: 15px auto;
-        max-width: 400px;
-        box-shadow: 0 0 15px rgba(255,215,0,0.4);
+        background: rgba(255, 215, 0, 0.05);
+        border: 1px solid #444;
+        border-radius: 14px;
+        margin: 12px 0;
+        padding: 12px;
     }
-    img {
-        width: 100%;
-        border-radius: 12px;
-        margin-bottom: 10px;
+    .world-name {
+        font-size: 18px;
+        margin-bottom: 8px;
+    }
+    input[type="file"] {
+        display: none;
+    }
+    label {
+        display: inline-block;
+        background: linear-gradient(145deg, #ffd700, #b8860b);
+        color: #000;
+        padding: 12px 22px;
+        margin: 10px;
+        border-radius: 14px;
+        font-size: 18px;
+        font-weight: bold;
+        cursor: pointer;
+        box-shadow: 0 4px 12px rgba(255,215,0,0.6);
     }
 </style>
 </head>
 <body>
     <h1>📂 بکاپ‌گیر مپ‌های Minecraft</h1>
-    <button onclick="pickFolder()">انتخاب پوشه MinecraftWorlds</button>
+
+    <label for="folderPicker">انتخاب پوشه com.mojang</label>
+    <input type="file" id="folderPicker" webkitdirectory directory multiple>
+
     <div id="worlds"></div>
 
 <script>
-let rootDir;
+let allFiles = [];
 
-async function pickFolder() {
-    try {
-        rootDir = await window.showDirectoryPicker();
-        document.getElementById("worlds").innerHTML = "";
-        for await (const entry of rootDir.values()) {
-            if (entry.kind === "directory") {
-                loadWorld(entry);
+document.getElementById("folderPicker").addEventListener("change", async (e) => {
+    allFiles = [...e.target.files];
+    const worldsDiv = document.getElementById("worlds");
+    worldsDiv.innerHTML = "";
+
+    const worldFolders = {};
+
+    allFiles.forEach(f => {
+        if (f.webkitRelativePath.includes("minecraftWorlds/")) {
+            const parts = f.webkitRelativePath.split("/");
+            const worldId = parts[parts.indexOf("minecraftWorlds") + 1];
+            if (worldId) {
+                if (!worldFolders[worldId]) worldFolders[worldId] = [];
+                worldFolders[worldId].push(f);
             }
         }
-    } catch (err) {
-        alert("خطا در انتخاب پوشه: " + err);
-    }
-}
+    });
 
-async function loadWorld(folder) {
-    try {
-        let files = {};
-        for await (const entry of folder.values()) {
-            files[entry.name] = entry;
+    for (const [worldId, files] of Object.entries(worldFolders)) {
+        let worldName = worldId;
+        const levelNameFile = files.find(f => f.name === "levelname.txt");
+        if (levelNameFile) {
+            const text = await levelNameFile.text();
+            worldName = text.trim();
         }
 
-        if (!files["level.dat"] && !files["level.dat_old"]) return;
-
-        // خواندن نام دنیا
-        let name = folder.name;
-        if (files["levelname.txt"]) {
-            const file = await files["levelname.txt"].getFile();
-            name = await file.text();
-        }
-
-        // آیکون دنیا
-        let imgURL = "";
-        if (files["world_icon.jpeg"]) {
-            const file = await files["world_icon.jpeg"].getFile();
-            imgURL = URL.createObjectURL(file);
-        }
-
-        const container = document.getElementById("worlds");
         const div = document.createElement("div");
         div.className = "world";
         div.innerHTML = `
-            ${imgURL ? `<img src="${imgURL}" alt="World Icon">` : ""}
-            <h2>${name}</h2>
-            <button onclick="backupWorld('${folder.name}')">📦 بکاپ</button>
+            <div class="world-name">🌍 ${worldName}</div>
+            <button onclick="backupWorld('${worldId}')">📦 بکاپ</button>
         `;
-        container.appendChild(div);
-
-    } catch (err) {
-        console.error("خطا در بارگذاری world:", err);
+        worldsDiv.appendChild(div);
     }
-}
+});
 
-async function backupWorld(worldName) {
-    try {
-        const folder = await rootDir.getDirectoryHandle(worldName);
-        let zip = new JSZip();
+async function backupWorld(worldId) {
+    const zip = new JSZip();
+    const files = allFiles.filter(f => f.webkitRelativePath.includes("minecraftWorlds/" + worldId));
 
-        async function addToZip(path, dirHandle) {
-            for await (const entry of dirHandle.values()) {
-                if (entry.kind === "file") {
-                    const file = await entry.getFile();
-                    const content = await file.arrayBuffer();
-                    zip.file(path + "/" + entry.name, content);
-                } else if (entry.kind === "directory") {
-                    await addToZip(path + "/" + entry.name, entry);
-                }
-            }
-        }
-
-        await addToZip("", folder);
-
-        const blob = await zip.generateAsync({ type: "blob" });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = worldName + ".mcworld";  // خروجی مستقیم mcworld
-        a.click();
-        URL.revokeObjectURL(a.href);
-
-    } catch (err) {
-        alert("خطا در بکاپ گرفتن: " + err);
+    for (let file of files) {
+        const arrayBuffer = await file.arrayBuffer();
+        const relativePath = file.webkitRelativePath.split("/").slice(2).join("/"); 
+        zip.file(relativePath, arrayBuffer);
     }
+
+    const blob = await zip.generateAsync({ type: "blob" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = worldId + ".mcworld";
+    a.click();
+    URL.revokeObjectURL(a.href);
 }
 </script>
 </body>
