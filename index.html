@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<title>Minecraft World Manager</title>
+<style>
+  body { font-family: sans-serif; background: #f2f2f2; padding: 20px; }
+  h1 { text-align: center; }
+  #worldList { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; margin-top: 20px; }
+  .world { background: #fff; border-radius: 10px; padding: 10px; width: 200px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); text-align: center; }
+  .world img { width: 180px; height: 100px; object-fit: cover; border-radius: 5px; }
+  button { margin: 5px; padding: 5px 10px; border-radius: 5px; border: none; background: #007bff; color: #fff; cursor: pointer; }
+  button:hover { background: #0056b3; }
+</style>
+</head>
+<body>
+<h1>لیست مپ‌های Minecraft</h1>
+<button id="chooseFolder">انتخاب پوشه مپ‌ها</button>
+<div id="worldList"></div>
+
+<script>
+async function chooseFolder() {
+  try {
+    const dirHandle = await window.showDirectoryPicker();
+    const worldList = document.getElementById('worldList');
+    worldList.innerHTML = '';
+    
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind === 'directory') {
+        const worldDiv = document.createElement('div');
+        worldDiv.className = 'world';
+        
+        // اسم مپ
+        const title = document.createElement('h3');
+        title.textContent = name;
+        worldDiv.appendChild(title);
+
+        // عکس مپ (world_icon.png)
+        let img = document.createElement('img');
+        try {
+          const fileHandle = await handle.getFileHandle('world_icon.png');
+          const file = await fileHandle.getFile();
+          const url = URL.createObjectURL(file);
+          img.src = url;
+        } catch(e) {
+          img.src = 'https://via.placeholder.com/180x100?text=No+Image';
+        }
+        worldDiv.appendChild(img);
+
+        // دکمه دانلود .mcworld
+        const mcworldBtn = document.createElement('button');
+        mcworldBtn.textContent = '.mcworld';
+        mcworldBtn.onclick = async () => {
+          await downloadWorld(handle, name + '.mcworld');
+        };
+        worldDiv.appendChild(mcworldBtn);
+
+        // دکمه دانلود .mctemplate
+        const mctemplateBtn = document.createElement('button');
+        mctemplateBtn.textContent = '.mctemplate';
+        mctemplateBtn.onclick = async () => {
+          await downloadWorld(handle, name + '.mctemplate');
+        };
+        worldDiv.appendChild(mctemplateBtn);
+
+        worldList.appendChild(worldDiv);
+      }
+    }
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// تابع ساخت zip و دانلود
+async function downloadWorld(dirHandle, filename) {
+  const zip = new JSZip();
+  await addFolderToZip(zip, dirHandle);
+  const blob = await zip.generateAsync({type:"blob"});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+}
+
+// افزودن فایل‌ها و پوشه‌ها به zip
+async function addFolderToZip(zipObj, dirHandle, path='') {
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (handle.kind === 'file') {
+      const file = await handle.getFile();
+      const content = await file.arrayBuffer();
+      zipObj.file(path + name, content);
+    } else if (handle.kind === 'directory') {
+      const folder = zipObj.folder(path + name);
+      await addFolderToZip(folder, handle, '');
+    }
+  }
+}
+
+document.getElementById('chooseFolder').addEventListener('click', chooseFolder);
+</script>
+
+<!-- JSZip از CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+</body>
+</html>
