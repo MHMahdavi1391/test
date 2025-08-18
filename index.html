@@ -44,78 +44,61 @@
         font-size: 18px;
         margin-bottom: 8px;
     }
-    input[type="file"] {
-        display: none;
-    }
-    label {
-        display: inline-block;
-        background: linear-gradient(145deg, #ffd700, #b8860b);
-        color: #000;
-        padding: 12px 22px;
-        margin: 10px;
-        border-radius: 14px;
-        font-size: 18px;
-        font-weight: bold;
-        cursor: pointer;
-        box-shadow: 0 4px 12px rgba(255,215,0,0.6);
-    }
 </style>
 </head>
 <body>
     <h1>📂 بکاپ‌گیر مپ‌های Minecraft</h1>
-
-    <label for="folderPicker">انتخاب پوشه com.mojang</label>
-    <input type="file" id="folderPicker" webkitdirectory directory multiple>
-
+    <button onclick="pickFolder()">انتخاب پوشه com.mojang</button>
     <div id="worlds"></div>
 
 <script>
-let allFiles = [];
-
-document.getElementById("folderPicker").addEventListener("change", async (e) => {
-    allFiles = [...e.target.files];
+async function pickFolder() {
+    const dirHandle = await window.showDirectoryPicker();
+    const worldsFolder = await dirHandle.getDirectoryHandle("minecraftWorlds", { create: false });
     const worldsDiv = document.getElementById("worlds");
     worldsDiv.innerHTML = "";
 
-    const worldFolders = {};
-
-    allFiles.forEach(f => {
-        if (f.webkitRelativePath.includes("minecraftWorlds/")) {
-            const parts = f.webkitRelativePath.split("/");
-            const worldId = parts[parts.indexOf("minecraftWorlds") + 1];
-            if (worldId) {
-                if (!worldFolders[worldId]) worldFolders[worldId] = [];
-                worldFolders[worldId].push(f);
-            }
+    for await (const [worldId, worldHandle] of worldsFolder.entries()) {
+        if (worldHandle.kind === "directory") {
+            let worldName = worldId;
+            try {
+                const levelNameFile = await worldHandle.getFileHandle("levelname.txt");
+                const file = await levelNameFile.getFile();
+                worldName = await file.text();
+            } catch {}
+            
+            const div = document.createElement("div");
+            div.className = "world";
+            div.innerHTML = `
+                <div class="world-name">🌍 ${worldName}</div>
+                <button onclick="backupWorld('${worldId}')">📦 بکاپ</button>
+            `;
+            worldsDiv.appendChild(div);
         }
-    });
-
-    for (const [worldId, files] of Object.entries(worldFolders)) {
-        let worldName = worldId;
-        const levelNameFile = files.find(f => f.name === "levelname.txt");
-        if (levelNameFile) {
-            const text = await levelNameFile.text();
-            worldName = text.trim();
-        }
-
-        const div = document.createElement("div");
-        div.className = "world";
-        div.innerHTML = `
-            <div class="world-name">🌍 ${worldName}</div>
-            <button onclick="backupWorld('${worldId}')">📦 بکاپ</button>
-        `;
-        worldsDiv.appendChild(div);
     }
-});
+    window.worldsFolder = worldsFolder;
+}
 
 async function backupWorld(worldId) {
+    const worldHandle = await window.worldsFolder.getDirectoryHandle(worldId);
     const zip = new JSZip();
-    const files = allFiles.filter(f => f.webkitRelativePath.includes("minecraftWorlds/" + worldId));
 
-    for (let file of files) {
-        const arrayBuffer = await file.arrayBuffer();
-        const relativePath = file.webkitRelativePath.split("/").slice(2).join("/"); 
-        zip.file(relativePath, arrayBuffer);
+    // فقط فایل‌های مهم world
+    const include = ["db", "level.dat", "level.dat_old", "levelname.txt", "world_icon.jpeg"];
+
+    for await (const [name, handle] of worldHandle.entries()) {
+        if (handle.kind === "file" && include.includes(name)) {
+            const file = await handle.getFile();
+            zip.file(name, await file.arrayBuffer());
+        } else if (handle.kind === "directory" && include.includes(name)) {
+            const folder = zip.folder(name);
+            for await (const [fname, fhandle] of handle.entries()) {
+                if (fhandle.kind === "file") {
+                    const file = await fhandle.getFile();
+                    folder.file(fname, await file.arrayBuffer());
+                }
+            }
+        }
     }
 
     const blob = await zip.generateAsync({ type: "blob" });
