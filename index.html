@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>بازی رانندگی سه‌بعدی با HTML و Three.js</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+        }
+        .button {
+            display: inline-block;
+            padding: 15px 30px;
+            margin: 0 10px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .button:active { background-color: #45a049; }
+        #errorMessage { 
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: red;
+            font-size: 20px;
+            display: none;
+        }
+    </style>
+    <script src="https://threejs.org/build/three.js"></script>
+    <script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+    <div id="errorMessage">خطا: Three.js لود نشد یا WebGL پشتیبانی نمی‌شود. لطفاً مرورگر یا اتصال خود را چک کنید.</div>
+    <div id="controls">
+        <button class="button" ontouchstart="keys['ArrowUp'] = true;" ontouchend="keys['ArrowUp'] = false;">شتاب</button>
+        <button class="button" ontouchstart="keys['ArrowLeft'] = true;" ontouchend="keys['ArrowLeft'] = false;">چپ</button>
+        <button class="button" ontouchstart="keys['ArrowRight'] = true;" ontouchend="keys['ArrowRight'] = false;">راست</button>
+        <button class="button" ontouchstart="keys['ArrowDown'] = true;" ontouchend="keys['ArrowDown'] = false;">ترمز</button>
+    </div>
+    <script>
+        // چک کردن پشتیبانی WebGL
+        if (!window.WebGLRenderingContext) {
+            document.getElementById('errorMessage').style.display = 'block';
+        }
+
+        // تنظیم صحنه پایه
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        if (!renderer) {
+            document.getElementById('errorMessage').style.display = 'block';
+        } else {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+        }
+
+        // اضافه کردن نور
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        directionalLight.position.set(5, 10, 7.5);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+
+        // آسمان
+        scene.background = new THREE.Color(0x87CEEB);
+
+        // جاده
+        const roadGeometry = new THREE.PlaneGeometry(10, 1000);
+        const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.8 });
+        const road = new THREE.Mesh(roadGeometry, roadMaterial);
+        road.rotation.x = -Math.PI / 2;
+        road.receiveShadow = true;
+        scene.add(road);
+
+        // خطوط جاده
+        for (let i = -500; i < 500; i += 20) {
+            const lineGeometry = new THREE.PlaneGeometry(0.2, 10);
+            const lineMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+            const line = new THREE.Mesh(lineGeometry, lineMaterial);
+            line.position.set(0, 0.01, i);
+            line.rotation.x = -Math.PI / 2;
+            scene.add(line);
+        }
+
+        // ساختمان‌ها
+        for (let i = -200; i < 200; i += 50) {
+            const buildingGeometry = new THREE.BoxGeometry(20, Math.random() * 20 + 10, 20);
+            const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xA9A9A9, metalness: 0.1 });
+            const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+            building.position.set(30, buildingGeometry.parameters.height / 2, i);
+            building.castShadow = true;
+            scene.add(building);
+
+            const building2 = building.clone();
+            building2.position.set(-30, buildingGeometry.parameters.height / 2, i + 10);
+            scene.add(building2);
+        }
+
+        // تیرهای چراغ
+        for (let i = -200; i < 200; i += 30) {
+            const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 10, 32);
+            const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const pole = new THREE.Mesh(poleGeometry, poleMaterial);
+            pole.position.set(15, 5, i);
+            scene.add(pole);
+
+            const pole2 = pole.clone();
+            pole2.position.set(-15, 5, i + 5);
+            scene.add(pole2);
+        }
+
+        // ماشین‌ها
+        const vanGeometry = new THREE.BoxGeometry(4, 3, 8);
+        const vanMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const van = new THREE.Mesh(vanGeometry, vanMaterial);
+        van.position.set(2, 1.5, -50);
+        van.castShadow = true;
+        scene.add(van);
+
+        const truckGeometry = new THREE.BoxGeometry(5, 4, 12);
+        const truckMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+        const truck = new THREE.Mesh(truckGeometry, truckMaterial);
+        truck.position.set(-2, 2, -70);
+        truck.castShadow = true;
+        scene.add(truck);
+
+        // داشبورد
+        const dashboardGeometry = new THREE.BoxGeometry(4, 0.5, 2);
+        const dashboardMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        const dashboard = new THREE.Mesh(dashboardGeometry, dashboardMaterial);
+        dashboard.position.set(0, 0.5, -1.5);
+        scene.add(dashboard);
+
+        // فرمان
+        const steeringWheelGeometry = new THREE.TorusGeometry(0.5, 0.1, 16, 100);
+        const steeringWheelMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const steeringWheel = new THREE.Mesh(steeringWheelGeometry, steeringWheelMaterial);
+        steeringWheel.position.set(0, 1, -1);
+        steeringWheel.rotation.x = Math.PI / 2;
+        scene.add(steeringWheel);
+
+        // لوگو BMW
+        const logoGeometry = new THREE.CircleGeometry(0.2, 32);
+        const logoMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const logo = new THREE.Mesh(logoGeometry, logoMaterial);
+        logo.position.set(0, 1, -0.9);
+        scene.add(logo);
+
+        // دست‌ها
+        const handGeometry = new THREE.BoxGeometry(0.3, 0.3, 1);
+        const handMaterial = new THREE.MeshStandardMaterial({ color: 0xD2B48C });
+        const leftHand = new THREE.Mesh(handGeometry, handMaterial);
+        leftHand.position.set(-0.4, 1, -1);
+        leftHand.rotation.z = Math.PI / 4;
+        scene.add(leftHand);
+
+        const rightHand = leftHand.clone();
+        rightHand.position.set(0.4, 1, -1);
+        rightHand.rotation.z = -Math.PI / 4;
+        scene.add(rightHand);
+
+        // سرعت‌سنج
+        const speedometerGeometry = new THREE.CircleGeometry(0.3, 32);
+        const speedometerMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+        const speedometer = new THREE.Mesh(speedometerGeometry, speedometerMaterial);
+        speedometer.position.set(0, 0.7, -1.4);
+        scene.add(speedometer);
+
+        // دوربین
+        camera.position.set(0, 1.5, 0);
+        camera.lookAt(0, 1.5, -100);
+
+        // متغیرهای کنترل
+        let speed = 0;
+        let maxSpeed = 2;
+        let acceleration = 0.05;
+        let steering = 0;
+        let steeringSpeed = 0.02;
+
+        // کنترل‌ها
+        const keys = {};
+        document.addEventListener('keydown', (e) => { keys[e.key] = true; });
+        document.addEventListener('keyup', (e) => { keys[e.key] = false; });
+
+        // انیمیشن
+        function animate() {
+            requestAnimationFrame(animate);
+
+            if (renderer) {
+                if (keys['ArrowUp'] || keys['w']) {
+                    speed = Math.min(speed + acceleration, maxSpeed);
+                } else if (keys['ArrowDown'] || keys['s']) {
+                    speed = Math.max(speed - acceleration, 0);
+                }
+
+                if (keys['ArrowLeft'] || keys['a']) {
+                    steering += steeringSpeed;
+                    steeringWheel.rotation.z += steeringSpeed;
+                } else if (keys['ArrowRight'] || keys['d']) {
+                    steering -= steeringSpeed;
+                    steeringWheel.rotation.z -= steeringSpeed;
+                } else {
+                    steering *= 0.9;
+                    steeringWheel.rotation.z *= 0.9;
+                }
+
+                camera.position.z -= speed;
+                camera.position.x += steering * speed;
+
+                van.position.z += 0.1;
+                truck.position.z += 0.1;
+                if (van.position.z > 50) van.position.z = -100;
+                if (truck.position.z > 50) truck.position.z = -120;
+
+                renderer.render(scene, camera);
+            }
+        }
+
+        animate();
+
+        // تغییر اندازه پنجره
+        window.addEventListener('resize', () => {
+            if (renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        });
+    </script>
+</body>
+</html>
