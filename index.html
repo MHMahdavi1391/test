@@ -5,13 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>بازی رانندگی سه‌بعدی با HTML و Three.js</title>
     <style>
-        body { margin: 0; overflow: hidden; }
+        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
         canvas { display: block; }
         #controls {
             position: absolute;
             bottom: 20px;
             width: 100%;
             text-align: center;
+            z-index: 10;
         }
         .button {
             display: inline-block;
@@ -23,6 +24,7 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
+            touch-action: manipulation;
         }
         .button:active { background-color: #45a049; }
         #errorMessage { 
@@ -33,36 +35,51 @@
             color: red;
             font-size: 20px;
             display: none;
+            z-index: 20;
+            background: white;
+            padding: 20px;
+            border: 1px solid red;
+        }
+        #loadingMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: blue;
+            font-size: 18px;
+            z-index: 15;
         }
     </style>
-    <script src="https://threejs.org/build/three.js"></script>
-    <script src="https://threejs.org/examples/js/controls/OrbitControls.js"></script>
+    <!-- استفاده از CDN به‌روز برای three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r161/three.min.js"></script>
 </head>
 <body>
-    <div id="errorMessage">خطا: Three.js لود نشد یا WebGL پشتیبانی نمی‌شود. لطفاً مرورگر یا اتصال خود را چک کنید.</div>
+    <div id="loadingMessage">در حال بارگذاری صحنه...</div>
+    <div id="errorMessage">خطا: WebGL پشتیبانی نمی‌شود یا مشکلی در بارگذاری وجود دارد. لطفاً مرورگر را چک کنید (F12 برای کنسول خطاها).</div>
     <div id="controls">
-        <button class="button" ontouchstart="keys['ArrowUp'] = true;" ontouchend="keys['ArrowUp'] = false;">شتاب</button>
-        <button class="button" ontouchstart="keys['ArrowLeft'] = true;" ontouchend="keys['ArrowLeft'] = false;">چپ</button>
-        <button class="button" ontouchstart="keys['ArrowRight'] = true;" ontouchend="keys['ArrowRight'] = false;">راست</button>
-        <button class="button" ontouchstart="keys['ArrowDown'] = true;" ontouchend="keys['ArrowDown'] = false;">ترمز</button>
+        <button class="button" id="accelerateBtn">شتاب</button>
+        <button class="button" id="leftBtn">چپ</button>
+        <button class="button" id="rightBtn">راست</button>
+        <button class="button" id="brakeBtn">ترمز</button>
     </div>
     <script>
         // چک کردن پشتیبانی WebGL
-        if (!window.WebGLRenderingContext) {
+        const canvas = document.createElement('canvas');
+        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        if (!gl) {
             document.getElementById('errorMessage').style.display = 'block';
+            document.getElementById('loadingMessage').style.display = 'none';
+            throw new Error('WebGL not supported');
         }
 
         // تنظیم صحنه پایه
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
-        if (!renderer) {
-            document.getElementById('errorMessage').style.display = 'block';
-        } else {
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.shadowMap.enabled = true;
-            document.body.appendChild(renderer.domElement);
-        }
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadows;
+        document.body.appendChild(renderer.domElement);
 
         // اضافه کردن نور
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -70,6 +87,8 @@
         const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
         directionalLight.position.set(5, 10, 7.5);
         directionalLight.castShadow = true;
+        directionalLight.shadow.mapSize.width = 2048;
+        directionalLight.shadow.mapSize.height = 2048;
         scene.add(directionalLight);
 
         // آسمان
@@ -77,7 +96,7 @@
 
         // جاده
         const roadGeometry = new THREE.PlaneGeometry(10, 1000);
-        const roadMaterial = new THREE.MeshStandardMaterial({ color: 0x808080, roughness: 0.8 });
+        const roadMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
         const road = new THREE.Mesh(roadGeometry, roadMaterial);
         road.rotation.x = -Math.PI / 2;
         road.receiveShadow = true;
@@ -95,24 +114,30 @@
 
         // ساختمان‌ها
         for (let i = -200; i < 200; i += 50) {
-            const buildingGeometry = new THREE.BoxGeometry(20, Math.random() * 20 + 10, 20);
-            const buildingMaterial = new THREE.MeshStandardMaterial({ color: 0xA9A9A9, metalness: 0.1 });
+            const height = Math.random() * 20 + 10;
+            const buildingGeometry = new THREE.BoxGeometry(20, height, 20);
+            const buildingMaterial = new THREE.MeshLambertMaterial({ color: 0xA9A9A9 });
             const building = new THREE.Mesh(buildingGeometry, buildingMaterial);
-            building.position.set(30, buildingGeometry.parameters.height / 2, i);
+            building.position.set(30, height / 2, i);
             building.castShadow = true;
+            building.receiveShadow = true;
             scene.add(building);
 
-            const building2 = building.clone();
-            building2.position.set(-30, buildingGeometry.parameters.height / 2, i + 10);
+            const building2Geometry = new THREE.BoxGeometry(15, height * 0.8, 15);
+            const building2 = new THREE.Mesh(building2Geometry, buildingMaterial);
+            building2.position.set(-30, height * 0.4, i + 10);
+            building2.castShadow = true;
+            building2.receiveShadow = true;
             scene.add(building2);
         }
 
         // تیرهای چراغ
         for (let i = -200; i < 200; i += 30) {
             const poleGeometry = new THREE.CylinderGeometry(0.2, 0.2, 10, 32);
-            const poleMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+            const poleMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
             const pole = new THREE.Mesh(poleGeometry, poleMaterial);
             pole.position.set(15, 5, i);
+            pole.castShadow = true;
             scene.add(pole);
 
             const pole2 = pole.clone();
@@ -120,16 +145,16 @@
             scene.add(pole2);
         }
 
-        // ماشین‌ها
+        // ماشین‌های دیگر (وان و کامیون)
         const vanGeometry = new THREE.BoxGeometry(4, 3, 8);
-        const vanMaterial = new THREE.MeshStandardMaterial({ color: 0xffffff });
+        const vanMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
         const van = new THREE.Mesh(vanGeometry, vanMaterial);
         van.position.set(2, 1.5, -50);
         van.castShadow = true;
         scene.add(van);
 
         const truckGeometry = new THREE.BoxGeometry(5, 4, 12);
-        const truckMaterial = new THREE.MeshStandardMaterial({ color: 0x808080 });
+        const truckMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
         const truck = new THREE.Mesh(truckGeometry, truckMaterial);
         truck.position.set(-2, 2, -70);
         truck.castShadow = true;
@@ -137,20 +162,20 @@
 
         // داشبورد
         const dashboardGeometry = new THREE.BoxGeometry(4, 0.5, 2);
-        const dashboardMaterial = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        const dashboardMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
         const dashboard = new THREE.Mesh(dashboardGeometry, dashboardMaterial);
         dashboard.position.set(0, 0.5, -1.5);
         scene.add(dashboard);
 
         // فرمان
         const steeringWheelGeometry = new THREE.TorusGeometry(0.5, 0.1, 16, 100);
-        const steeringWheelMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
+        const steeringWheelMaterial = new THREE.MeshLambertMaterial({ color: 0x000000 });
         const steeringWheel = new THREE.Mesh(steeringWheelGeometry, steeringWheelMaterial);
         steeringWheel.position.set(0, 1, -1);
         steeringWheel.rotation.x = Math.PI / 2;
         scene.add(steeringWheel);
 
-        // لوگو BMW
+        // لوگو BMW (دایره سفید)
         const logoGeometry = new THREE.CircleGeometry(0.2, 32);
         const logoMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const logo = new THREE.Mesh(logoGeometry, logoMaterial);
@@ -159,7 +184,7 @@
 
         // دست‌ها
         const handGeometry = new THREE.BoxGeometry(0.3, 0.3, 1);
-        const handMaterial = new THREE.MeshStandardMaterial({ color: 0xD2B48C });
+        const handMaterial = new THREE.MeshLambertMaterial({ color: 0xD2B48C });
         const leftHand = new THREE.Mesh(handGeometry, handMaterial);
         leftHand.position.set(-0.4, 1, -1);
         leftHand.rotation.z = Math.PI / 4;
@@ -177,66 +202,109 @@
         speedometer.position.set(0, 0.7, -1.4);
         scene.add(speedometer);
 
-        // دوربین
+        // موقعیت اولیه دوربین
         camera.position.set(0, 1.5, 0);
-        camera.lookAt(0, 1.5, -100);
 
         // متغیرهای کنترل
         let speed = 0;
-        let maxSpeed = 2;
-        let acceleration = 0.05;
+        let maxSpeed = 0.5; // کاهش سرعت برای روان‌تر بودن
+        let acceleration = 0.01;
         let steering = 0;
-        let steeringSpeed = 0.02;
+        let steeringSpeed = 0.005;
 
-        // کنترل‌ها
+        // کنترل‌ها با کیبورد و لمسی
         const keys = {};
         document.addEventListener('keydown', (e) => { keys[e.key] = true; });
         document.addEventListener('keyup', (e) => { keys[e.key] = false; });
 
-        // انیمیشن
+        // دکمه‌های لمسی
+        const accelerateBtn = document.getElementById('accelerateBtn');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        const brakeBtn = document.getElementById('brakeBtn');
+
+        let touchKeys = { ArrowUp: false, ArrowLeft: false, ArrowRight: false, ArrowDown: false };
+
+        accelerateBtn.addEventListener('touchstart', (e) => { e.preventDefault(); touchKeys['ArrowUp'] = true; });
+        accelerateBtn.addEventListener('touchend', (e) => { e.preventDefault(); touchKeys['ArrowUp'] = false; });
+        leftBtn.addEventListener('touchstart', (e) => { e.preventDefault(); touchKeys['ArrowLeft'] = true; });
+        leftBtn.addEventListener('touchend', (e) => { e.preventDefault(); touchKeys['ArrowLeft'] = false; });
+        rightBtn.addEventListener('touchstart', (e) => { e.preventDefault(); touchKeys['ArrowRight'] = true; });
+        rightBtn.addEventListener('touchend', (e) => { e.preventDefault(); touchKeys['ArrowRight'] = false; });
+        brakeBtn.addEventListener('touchstart', (e) => { e.preventDefault(); touchKeys['ArrowDown'] = true; });
+        brakeBtn.addEventListener('touchend', (e) => { e.preventDefault(); touchKeys['ArrowDown'] = false; });
+
+        // برای دسکتاپ هم کلیک
+        accelerateBtn.addEventListener('mousedown', () => touchKeys['ArrowUp'] = true);
+        document.addEventListener('mouseup', () => touchKeys['ArrowUp'] = false);
+        leftBtn.addEventListener('mousedown', () => touchKeys['ArrowLeft'] = true);
+        document.addEventListener('mouseup', () => touchKeys['ArrowLeft'] = false);
+        rightBtn.addEventListener('mousedown', () => touchKeys['ArrowRight'] = true);
+        document.addEventListener('mouseup', () => touchKeys['ArrowRight'] = false);
+        brakeBtn.addEventListener('mousedown', () => touchKeys['ArrowDown'] = true);
+        document.addEventListener('mouseup', () => touchKeys['ArrowDown'] = false);
+
+        // انیمیشن لوپ
         function animate() {
             requestAnimationFrame(animate);
 
-            if (renderer) {
-                if (keys['ArrowUp'] || keys['w']) {
-                    speed = Math.min(speed + acceleration, maxSpeed);
-                } else if (keys['ArrowDown'] || keys['s']) {
-                    speed = Math.max(speed - acceleration, 0);
-                }
+            // ترکیب کنترل‌های کیبورد و لمسی
+            const upPressed = keys['ArrowUp'] || keys['w'] || touchKeys['ArrowUp'];
+            const downPressed = keys['ArrowDown'] || keys['s'] || touchKeys['ArrowDown'];
+            const leftPressed = keys['ArrowLeft'] || keys['a'] || touchKeys['ArrowLeft'];
+            const rightPressed = keys['ArrowRight'] || keys['d'] || touchKeys['ArrowRight'];
 
-                if (keys['ArrowLeft'] || keys['a']) {
-                    steering += steeringSpeed;
-                    steeringWheel.rotation.z += steeringSpeed;
-                } else if (keys['ArrowRight'] || keys['d']) {
-                    steering -= steeringSpeed;
-                    steeringWheel.rotation.z -= steeringSpeed;
-                } else {
-                    steering *= 0.9;
-                    steeringWheel.rotation.z *= 0.9;
-                }
-
-                camera.position.z -= speed;
-                camera.position.x += steering * speed;
-
-                van.position.z += 0.1;
-                truck.position.z += 0.1;
-                if (van.position.z > 50) van.position.z = -100;
-                if (truck.position.z > 50) truck.position.z = -120;
-
-                renderer.render(scene, camera);
+            if (upPressed) {
+                speed = Math.min(speed + acceleration, maxSpeed);
+            } else if (downPressed) {
+                speed = Math.max(speed - acceleration * 2, -maxSpeed / 2); // اجازه ترمز معکوس
+            } else {
+                speed *= 0.98; // اصطکاک
             }
+
+            if (leftPressed) {
+                steering += steeringSpeed;
+                steeringWheel.rotation.z += steeringSpeed * 10; // چرخش بیشتر فرمان
+            } else if (rightPressed) {
+                steering -= steeringSpeed;
+                steeringWheel.rotation.z -= steeringSpeed * 10;
+            } else {
+                steering *= 0.95; // بازگشت فرمان
+                steeringWheel.rotation.z *= 0.95;
+            }
+
+            // محدود کردن فرمان
+            steering = Math.max(-0.5, Math.min(0.5, steering));
+
+            // حرکت دوربین
+            camera.position.z -= speed;
+            camera.position.x += steering * speed * 2;
+            camera.lookAt(camera.position.x, camera.position.y, camera.position.z - 100);
+
+            // حرکت ماشین‌های دیگر (به عقب نسبت به بازیکن)
+            van.position.z += speed * 0.5; // هماهنگ با سرعت
+            truck.position.z += speed * 0.5;
+            if (van.position.z > 50) van.position.z = camera.position.z - 100;
+            if (truck.position.z > 50) truck.position.z = camera.position.z - 120;
+
+            // رندر
+            renderer.render(scene, camera);
         }
 
+        // شروع انیمیشن بعد از بارگذاری
+        document.getElementById('loadingMessage').style.display = 'none';
         animate();
 
         // تغییر اندازه پنجره
         window.addEventListener('resize', () => {
-            if (renderer) {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            }
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         });
+
+        // لاگ برای دیباگ
+        console.log('Three.js version:', THREE.REVISION);
+        console.log('Scene loaded successfully. If still white, check console for errors.');
     </script>
 </body>
 </html>
